@@ -1,0 +1,247 @@
+Prerequisites:
+
+Check application access (Internet or internal ) 
+
+Check IP available in subnets (At least 8 IPs should available in the subnets)
+
+EKS cluster should always in private mode 
+
+Create two IAM roles one for cluster and another for node group 
+Attach AWS managed “AmazonEKSClusterPolicy" for Cluster IAM role 
+Attache below AWS managed policies for node group IAM role 
+AmazonEC2ContainerRegistryReadOnly
+AmazonEKS_CNI_Policy
+AmazonEKSWorkerNodePolicy
+
+Select public and private subnets in networking section for public facing application 
+
+Update tags in subnets level for load balancing 
+Refer: Application load balancing on Amazon EKS - Amazon EKS 
+
+Optional: Create launch template with instance type 
+
+EKS cluster setup 
+
+Click on Create option and provide name for EKS cluster  
+
+Select latest version of kubernetes version and add tags 
+
+Add VPC , Subnets, security groups & select Private cluster endpoint access 
+
+Select all options in Configure logging
+
+Select CoreDNS, Amazon VPC CNI & kube-proxy in Add- ons then click on create button
+
+Create node group by providing name, launch template, IAM role, AMI type, Capacity type with node group scaling configuration
+
+How to access EKS access from Jump server 
+
+EC2 should running with LDAP configuration
+
+Jump server must have  aws cli v2 if not exists install 
+
+Jump server should have kubectl if not exists install 
+
+Create IAM role with eks full access as custom policy and attach this IAM role to jump server 
+
+Update kube-config with cluster name 
+
+
+aws eks update-kubeconfig --region ap-south-1 --name cluster-name
+Check the connectivity by running below command 
+
+
+kubectl get pods -A
+It will show all  running pods if connectivity is successful, it won’t show any output if IAM role not added in configmap in the cluster 
+
+How to update IAM roles or users in the cluster configmap 
+
+Use cloudshell console and run below commands If EKS cluster is running in public mode 
+
+
+aws eks update-kubeconfig --region ap-south-1 --name cluster-name
+Check the mapping role in the cluster
+
+
+eksctl get iamidentitymapping --cluster cluster-name --region=ap-south-1
+Update the IAM role in the configmap
+
+
+eksctl create iamidentitymapping --cluster cluster-name --region=ap-south-1     --arn arn:aws:iam::561148123210:role/devops-eks-access --username admin --group system:masters     --no-duplicate-arns
+ 
+
+Steps to update IAM roles in private mode EKS cluster 
+
+Add assume policy for IAM role which is attached to jump(bastion) server (10.224.121.24)
+
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Resource": "*"
+        }
+    ]
+}
+Find EKS cluster created role from cloudtrail 
+Search below event in event history
+
+
+ Event name: CreateCluster 
+
+Cluster "MerakiUnifiedSender" created by below arn
+"arn": "arn:aws:sts::561148123210:assumed-role/eks-full-access-role/preetham.umarani"
+Update trust relationship in the previous IAM role
+
+arn:aws:iam::561148123210:role/eks-full-access-role
+
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::561148123210:role/devops-eks-access",
+                    "arn:aws:iam::814458985478:root"
+                ]
+            },
+            "Action": "sts:AssumeRole",
+            "Condition": {}
+        }
+    ]
+}
+ 
+
+Get temporary IAM credentials from assume role
+
+
+aws sts assume-role --role-arn "arn:aws:iam::561148123210:role/eks-full-access-role" --role-session-name AWSCLI-Session
+Update IAM keys as env variables from above assume role step
+
+
+export AWS_ACCESS_KEY_ID=<>
+
+export AWS_SECRET_ACCESS_KEY=<>
+
+export AWS_SESSION_TOKEN=<>
+Check assume IAM role by running below command
+
+
+aws sts get-caller-identity 
+Verify eksctl in the jump server if not exists installe
+
+
+eksctl version
+
+eksctl installtion 
+# for ARM systems, set ARCH to: `arm64`, `armv6` or `armv7`
+ARCH=amd64
+PLATFORM=$(uname -s)_$ARCH
+
+curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$PLATFORM.tar.gz"
+
+# (Optional) Verify checksum
+curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_checksums.txt" | grep $PLATFORM | sha256sum --check
+
+tar -xzf eksctl_$PLATFORM.tar.gz -C /tmp && rm eksctl_$PLATFORM.tar.gz
+
+sudo mv /tmp/eksctl /usr/local/bin
+Check the mapping role in the cluster
+
+
+eksctl get iamidentitymapping --cluster MerakiUnifiedSender --region=ap-south-1
+Update the IAM role in the configmap
+
+
+eksctl create iamidentitymapping --cluster MerakiUnifiedSender --region=ap-south-1     --arn arn:aws:iam::561148123210:role/devops-eks-access --username admin --group system:masters     --no-duplicate-arns
+Check the mapping role again in the cluster
+
+
+eksctl get iamidentitymapping --cluster MerakiUnifiedSender --region=ap-south-1
+Check the eks connectivity
+
+
+kubectl config use-context arn:aws:eks:ap-south-1:561148123210:cluster/MerakiUnifiedSender
+kubectl get pods -A
+ 
+
+Follow below steps to configure EFS, EBS, Ingress controller & Autoscaler in EKS cluster 
+
+Prerequisites: 
+
+Create Identity Provider for EKS Cluster OIDC provider in the IAM console
+
+This setup needs to be done for each EKS Cluster setup
+
+Click “Add Provider“ → Under “Configure provider“ → Select “OpenID Connect“ → Add “Provider URL“ → Click “Get thumbprint“
+
+For “Audience“ → Add “sts.amazonaws.com” → Click “Add Provider“ to save the update.
+
+Configure EFS CSI controller in EKS cluster 
+
+Setup EFS CSI drivers for EFS Volumes
+
+Refer: Install EFS CSI (Container Storage Interface) driver
+
+EBS CSI driver configure 
+
+Refer Managing the Amazon EBS CSI driver as an Amazon EKS add-on - Amazon EKS 
+
+Configure Kubernetes Metric Server in EKS cluster 
+
+Refer: Installing the Kubernetes Metrics Server - Amazon EKS 
+
+Configure Ingress controller (AWS load balancer & Nginx)  
+
+Refer Kubernetes Ingress and Ingress Controllers
+
+If you want to deploy load balancers to a subnet, the subnets must have the following tag:
+
+Private subnets
+
+KeyValuekubernetes.io/role/internal-elb1
+
+Public subnets
+
+KeyValuekubernetes.io/role/elb1
+
+Setup Cluster autoscaler
+
+Refer Setup Cluster Autoscaler
+
+ 
+
+What kind of issues generally face in EKS 
+
+Kunbernetes cluster running out of IP Address 
+
+
+kubectl set env daemonset aws-node -n kube-system WARM_ENI_TARGET=0
+Access denied related issue with EKS cluster 
+
+Refer this topic “How to update IAM roles or users in the cluster configmap “
+
+Ingress related issue 
+
+Issue:
+
+ALB load balancers are not created using ingress controller because IAM policy added to restrict security group creation in organisation level as part of security compliance due to this policy only admin roles has access to create security groups.
+
+Error:
+
+
+Warning  FailedBuildModel  3s (x2 over 6s)  ingress  (combined from similar events): Failed build model due to UnauthorizedOperation: You are not authorized to perform this operation.
+Solution:
+
+If ingress wants to create any internal or internet load balancer, we have to specify security groups in ingress annotation, when this annotation is not present, the controller will automatically create security groups: the security group will be attached to the LoadBalancer and allow access from inbound-cidrs to the listen-ports
+
+
+Note: Create security groups based on ingress yaml file, this may depend on this application
+
+
+alb.ingress.kubernetes.io/security-groups: sg-0395335bc98f391cc, sg-0f9442ed60dafade8
